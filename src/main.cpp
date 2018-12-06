@@ -23,8 +23,6 @@
 #include <helper_cuda.h>
 #include <helper_cuda_gl.h>
 
-#define USE_IMGUI
-
 // Imgui includes
 #ifdef USE_IMGUI
 #include <imgui.h>
@@ -1154,7 +1152,9 @@ void MandelbulbApp::updateImgui()
 
 bool MandelbulbApp::initImgui()
 {
-    std::cout << "Imgui was not built with this application.\n You cannot modify parameters of Mandelbulb renderer without Imgui./n For the full experience of this application, please download Imgui and build the app again with it." << std::end;
+    std::cout << "Imgui was not built with this application." << std::endl;
+    std::cout << "You cannot modify parameters of Mandelbulb renderer without Imgui." << std::endl;
+    std::cout << "For the full experience of this application, please download Imgui and build the app again with it." << std::endl;
     return true;
 }
 
@@ -1170,6 +1170,7 @@ bool handleArgumentsParameters(int argc, char* argv[])
     for (int i = 1; i < argc; ++i)
     {
         std::string arg = argv[i];
+
         if ((arg == "-w") || (arg == "--width"))
         {
             if (i + 1 < argc)
@@ -1215,6 +1216,16 @@ bool handleArgumentsParameters(int argc, char* argv[])
 int main(int argc, char* argv[])
 {
     // Take input from command line
+    if (argc > 1 && std::string(argv[1]) == "help")
+    {
+        std::cout << "Usage: $0 [--option <argument>]..." << std::endl;
+        std::cout << std::endl;
+        std::cout << "-w --width     Width of window" << std::endl;
+        std::cout << "-h --height    Height of window" << std::endl;
+        std::cout << "-a --angle     View angle of camera" << std::endl;
+        return 0;
+    }
+
     if (!handleArgumentsParameters(argc, argv))
     {
         return 1;
