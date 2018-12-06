@@ -59,13 +59,13 @@ public:
         float m_deltaDepth;
         int m_minimumIterations = 3;
         int m_numDrillingIterations = 5;
-        bool m_adaptiveIterationCounts = false;
+        bool m_adaptiveIterationCounts = true;
         bool m_distanceEstimation = false;
         bool m_mortonCurve = true;
         bool m_doublePrecision = false;
 
         // Rendering settings
-        MandelbulbRenderer::NormalMode m_normalMode = MandelbulbRenderer::PseudoScreenSpace;
+        MandelbulbRenderer::NormalMode m_normalMode = MandelbulbRenderer::ScreenSpace;
         MandelbulbRenderer::ColoringMode m_coloringMode = MandelbulbRenderer::Normal;
         bool m_applySSAO = true;
     };
@@ -1154,6 +1154,7 @@ void MandelbulbApp::updateImgui()
 
 bool MandelbulbApp::initImgui()
 {
+    std::cout << "Imgui was not built with this application.\n You cannot modify parameters of Mandelbulb renderer without Imgui./n For the full experience of this application, please download Imgui and build the app again with it." << std::end;
     return true;
 }
 
