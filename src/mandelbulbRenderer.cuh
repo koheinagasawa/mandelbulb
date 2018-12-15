@@ -4,6 +4,7 @@
 //
 
 #include <helper_math.h>
+#include <vector>
 
 // MandelbulbRenderer evaluates Mandelbulb set in 3D space and render it
 class MandelbulbRenderer
@@ -92,11 +93,12 @@ public:
 
     inline void setColoringMode(ColoringMode mode) { m_coloringMode = mode; }
 
+    inline void enableShadow(bool enable) { m_castShadow = enable; }
+
     inline void enableSSAO(bool enable) { m_ssaoEnabled = enable; }
     inline bool isSSAOEnabled() const { return m_ssaoEnabled; }
 
-    inline void setLight1Pos(const float3& pos) { m_light1Pos = pos; }
-    inline void setLight2Pos(const float3& pos) { m_light2Pos = pos; }
+    void addLight(const float3& pos);
 
 private:
 
@@ -125,6 +127,7 @@ private:
     float3* m_pixelDirs = nullptr;
     float3* m_pixelNormals = nullptr;
     float3* m_pixelPositions = nullptr;
+    float3* m_lightPositions = nullptr;
     float* m_pixelDepths = nullptr;
     float* m_pixelDeltaDepths = nullptr;
     int2* m_texcoords = nullptr;
@@ -176,9 +179,9 @@ private:
     // Rendering parameters
     NormalMode m_normalMode = ScreenSpace;
     ColoringMode m_coloringMode = Normal;
-    float3 m_light1Pos = { 0, 0, 0 };
-    float3 m_light2Pos = { 0, 0, 0 };
+    std::vector<float3> m_lightPositionsHost;
     bool m_ssaoEnabled = true;
+    bool m_castShadow = false;
 
     // True if Mandelbulb needs to be evaluated again in the next step
     bool m_needRecalculate = true;

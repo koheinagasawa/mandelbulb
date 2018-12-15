@@ -1632,6 +1632,145 @@ void sampleScreenSpaceNormals_kernel(
     pixelNormals[id] = normalize(cross(dx, dy));
 }
 
+// Apply SSAO effect
+__global__
+void applySSAO_kernel(
+    const unsigned int numPixels,
+    const int width,
+    const int height,
+    const int2* texcoords,
+    bool mortonCurve,
+    float3* pixelColors)
+{
+    const unsigned int id = getPixelIndex();
+    if (id >= numPixels)
+    {
+        return;
+    }
+
+    const int2& cord = texcoords[id];
+    const int x = cord.x;
+    const int y = cord.y;
+
+    float depth = tex1Dfetch(s_depthTexture, id);
+
+    unsigned int shieldCount = 1;
+    unsigned int neighborId;
+    float neighborDepth;
+
+    for (int i = -3; i <= 3; ++i)
+    {
+        if ((x == 0 && i < 0) || (x + 1 == width && i > 0))
+        {
+            continue;
+        }
+        for (int j = -3; j <= 3; ++j)
+        {
+            if (i == 0 && j == 0)
+            {
+                continue;
+            }
+
+            if (i * i + j * j > 9)
+            {
+                continue;
+            }
+
+            if ((y == 0 && j < 0) || (y + 1 == height && j > 0))
+            {
+                continue;
+            }
+
+            neighborId = getNeighborIndex(id, i, j, width, mortonCurve);
+            neighborDepth = tex1Dfetch(s_depthTexture, neighborId);
+            if (depth > neighborDepth)
+            {
+                ++shieldCount;
+            }
+        }
+    }
+
+    float shield = 1.f / (float)shieldCount * 9.f + 0.3f;
+
+    // Clamp shield
+    if (shield > 1.0f)
+    {
+        return;
+    }
+
+    // Modify the color
+    pixelColors[id].x *= shield;
+    pixelColors[id].y *= shield;
+    pixelColors[id].z *= shield;
+}
+
+template <int N>
+__global__
+void castShadow(
+    const unsigned int numPixels,
+    const unsigned int minimumIterations,
+    const float3* pixelPositions,
+    const float* pixelDepths,
+    const float3* lightPositions,
+    const unsigned int numLights,
+    float3* pixelColors)
+{
+    const unsigned int id = getPixelIndex();
+    if (id >= numPixels)
+    {
+        return;
+    }
+
+    if (id < numPixels)
+    {
+        const float3& pixelPos = pixelPositions[id];
+        const float depth = pixelDepths[id];
+        float deltaDepth = 0.0005f * depth;
+
+        bool lit = false;
+
+        for (int l = 0; l < numLights; ++l)
+        {
+            const float3 dir = lightPositions[l] - pixelPos;
+            float3 pos = pixelPos + dir * deltaDepth;
+
+            float count = 0;
+            int i;
+            for (i = 0; i < 25; i++)
+            {
+                if (dot(pos, pos) > s_sphereRadiusSquared)
+                {
+                    lit = true;
+                    break;
+                }
+
+                const int currentIteration = getNumIterations(depth, 0, minimumIterations);
+                int iterationLeft;
+                float residual, potential;
+                if (evalMandelbulb<N>(pos, currentIteration, iterationLeft, potential, residual))
+                {
+                    break;
+                }
+                pos = pos + dir * deltaDepth;
+
+                count += 0.0002f;
+                deltaDepth *= pow(1000.0f, count);
+            }
+
+            if (i == 25)
+            {
+                lit = true;
+                break;
+            }
+        }
+
+        if (!lit)
+        {
+            pixelColors[id] *= 0.5f;
+        }
+    }
+}
+
 // Calculate color of pixels based on position, normal and lights
 __global__
 void setColorFromPos(
@@ -1640,8 +1779,8 @@ void setColorFromPos(
     const float* pixelDepths,
     const float3* pixelNormals,
     const float3 cameraPosition,
-    const float3 light1Pos,
-    const float3 light2Pos,
+    const float3* lightPositions,
+    const unsigned int numLights,
     bool useNormal,
     bool colorfulMode,
     float3* pixelColors)
@@ -1666,19 +1805,21 @@ void setColorFromPos(
             const float div = dot(normal, pos);
             const float divSquared = div * div;
 
-            float3 halfway1 = cameraPosition - light1Pos;
-            float3 halfway2 = cameraPosition - light2Pos;
-            halfway1 = normalize(halfway1);
-            halfway2 = normalize(halfway2);
+            float diffuse = 0;
+            float specular = 0;
 
-            float3 l1toP = light1Pos - pos;
-            float3 l2toP = light2Pos - pos;
-            l1toP = normalize(l1toP);
-            l2toP = normalize(l2toP);
+            for (int i = 0; i < numLights; ++i)
+            {
+                const float3& lightPosition = lightPositions[i];
 
-            const float diffuse = 2.0f * (0.5f * max(dot(normal, l1toP), 0.0f) + 0.5f * max(dot(normal, l2toP), 0.0f));
+                diffuse += 0.5f * max(dot(normal, normalize(lightPosition - pos)), 0.0f);
+                specular += pow(max(dot(normal, normalize(cameraPosition - lightPosition)), 0.0f), 8.0f);
+            }
+
+            diffuse *= 2.f;
+            specular *= 0.5f;
+
             const float ambient = 1.0f;
-            const float specular = 0.5f * (pow(max(dot(normal, halfway1), 0.0f), 8.0f) + pow(max(dot(normal, halfway2), 0.0f), 8.0f));
             const float ambientAndDiffuse = ambient + diffuse;
 
             if (colorfulMode)
@@ -1758,78 +1899,6 @@ void colFloatToByte(
         colUChar[1] = (unsigned char)(255 * g);
         colUChar[2] = (unsigned char)(255 * b);
     }
-}
-
-// Apply SSAO effect
-__global__
-void applySSAO_kernel(
-    const unsigned int numPixels,
-    const int width,
-    const int height,
-    const int2* texcoords,
-    bool mortonCurve,
-    float3* pixelColors)
-{
-    const unsigned int id = getPixelIndex();
-    if (id >= numPixels)
-    {
-        return;
-    }
-
-    const int2& cord = texcoords[id];
-    const int x = cord.x;
-    const int y = cord.y;
-
-    float depth = tex1Dfetch(s_depthTexture, id);
-
-    unsigned int shieldCount = 1;
-    unsigned int neighborId;
-    float neighborDepth;
-
-    for (int i = -3; i <= 3; ++i)
-    {
-        if ((x == 0 && i < 0) || (x + 1 == width && i > 0))
-        {
-            continue;
-        }
-        for (int j = -3; j <= 3; ++j)
-        {
-            if (i == 0 && j == 0)
-            {
-                continue;
-            }
-
-            if (i * i + j * j > 9)
-            {
-                continue;
-            }
-
-            if ((y == 0 && j < 0) || (y + 1 == height && j > 0))
-            {
-                continue;
-            }
-
-            neighborId = getNeighborIndex(id, i, j, width, mortonCurve);
-            neighborDepth = tex1Dfetch(s_depthTexture, neighborId);
-            if (depth > neighborDepth)
-            {
-                ++shieldCount;
-            }
-        }
-    }
-
-    float shield = 1.f / (float)shieldCount * 9.f + 0.3f;
-
-    // Clamp shield
-    if (shield > 1.0f)
-    {
-        return;
-    }
-
-    // Modify the color
-    pixelColors[id].x *= shield;
-    pixelColors[id].y *= shield;
-    pixelColors[id].z *= shield;
 }
 
 #ifdef ENABLE_DOUBLE_PRECISION
@@ -2294,8 +2363,16 @@ void MandelbulbRenderer::createMandelbulb(unsigned char* pixcelColorsHost)
         endTimer();
     }
 
+    const unsigned int numLights = (unsigned int)m_lightPositionsHost.size();
+
     {
         startTimer("Set Color");
+
+        if (!m_lightPositions && numLights > 0)
+        {
+            allocateArray((void**)&m_lightPositions, numLights * sizeof(float3));
+            cpyHostToDevice((void*)m_lightPositions, (void*)(&m_lightPositionsHost.front()), numLights * sizeof(float3));
+        }
 
         // Set colors
         setColorFromPos << <m_numBlocks, m_numThreads >> > (
@@ -2304,10 +2381,28 @@ void MandelbulbRenderer::createMandelbulb(unsigned char* pixcelColorsHost)
             m_pixelDepths,
             m_pixelNormals,
             m_cameraPosition,
-            m_light1Pos,
-            m_light2Pos,
+            m_lightPositions,
+            numLights,
             m_normalMode != NoNormal,
             m_coloringMode == Colorful,
+            m_pixelColorsFloat);
+
+        cudaThreadSynchronize();
+        endTimer();
+    }
+
+    // Cast shadow
+    if(m_castShadow)
+    {
+        startTimer("Cast Shadow");
+
+        castShadow<8> << <m_numBlocks, m_numThreads >> >(
+            m_numPixels,
+            m_minimumIterations,
+            m_pixelPositions,
+            m_pixelDepths,
+            m_lightPositions,
+            numLights,
             m_pixelColorsFloat);
 
         cudaThreadSynchronize();
@@ -2416,6 +2511,16 @@ void MandelbulbRenderer::enableMortonCurveIndexing(bool enable)
         m_mortonCurve,
         m_texcoords);
 }
+
+void MandelbulbRenderer::addLight(const float3& pos)
+{
+    m_lightPositionsHost.push_back(pos);
+    if (m_lightPositions)
+    {
+        freeArray((void**)m_lightPositions);
+    }
+}
+
 
 void MandelbulbRenderer::setDepthToDeltaStepRate(float rate)
 {

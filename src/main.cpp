@@ -65,6 +65,7 @@ public:
         // Rendering settings
         MandelbulbRenderer::NormalMode m_normalMode = MandelbulbRenderer::ScreenSpace;
         MandelbulbRenderer::ColoringMode m_coloringMode = MandelbulbRenderer::Normal;
+        bool m_castShadow = false;
         bool m_applySSAO = true;
     };
 
@@ -294,8 +295,8 @@ bool MandelbulbApp::init(const Settings& settings)
         float const pixelAngle = cameraAngle / (float)m_settings.m_windowWidth;
 
         m_mandelbulb = new MandelbulbRenderer(m_settings.m_windowWidth, m_settings.m_windowHeight);
-        m_mandelbulb->setLight1Pos({ 5.0, -5.0, -3.0 });
-        m_mandelbulb->setLight2Pos({ -5.0,  5.0,  3.0 });
+        m_mandelbulb->addLight({ 5.0, -5.0, -3.0 });
+        m_mandelbulb->addLight({ -5.0,  5.0,  3.0 });
         m_mandelbulb->setPixelAngle(pixelAngle);
 
         m_mandelbulb->setMinimumIterations(m_params.m_minimumIterations);
@@ -1129,6 +1130,9 @@ void MandelbulbApp::updateImgui()
                 ImGui::Combo("Normal Type", (int*)&m_params.m_normalMode, listbox_items, IM_ARRAYSIZE(listbox_items));
                 m_mandelbulb->setNormalMode(m_params.m_normalMode);
             }
+
+            ImGui::Checkbox("Shadow", &m_params.m_castShadow);
+            m_mandelbulb->enableShadow(m_params.m_castShadow);
 
             ImGui::Checkbox("SSAO", &m_params.m_applySSAO);
             m_mandelbulb->enableSSAO(m_params.m_applySSAO);
